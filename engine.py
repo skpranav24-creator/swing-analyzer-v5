@@ -32,11 +32,16 @@ def get_data(symbol, period="5y"):
     if df.empty:
         raise ValueError(f"No market data received for {ticker}")
 
-    missing = [column for column in required_columns if column not in df.columns]
+    missing = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
 
     if missing:
         raise ValueError(
-            f"Missing market data columns for {ticker}: {', '.join(missing)}"
+            f"Missing market data columns for {ticker}: "
+            f"{', '.join(missing)}"
         )
 
     df = df[required_columns].dropna()
@@ -108,6 +113,10 @@ def calculate_indicators(df):
         adjust=False,
     ).mean()
 
+    data["MACD_HIST"] = (
+        data["MACD"] - data["MACD_SIGNAL"]
+    )
+
     data["VOL20"] = data["Volume"].rolling(20).mean()
 
     true_range = pd.concat(
@@ -149,13 +158,19 @@ def calculate_indicators(df):
 
     plus_di = (
         100
-        * plus_dm.ewm(alpha=1 / 14, adjust=False).mean()
+        * plus_dm.ewm(
+            alpha=1 / 14,
+            adjust=False,
+        ).mean()
         / atr_smoothed.replace(0, np.nan)
     )
 
     minus_di = (
         100
-        * minus_dm.ewm(alpha=1 / 14, adjust=False).mean()
+        * minus_dm.ewm(
+            alpha=1 / 14,
+            adjust=False,
+        ).mean()
         / atr_smoothed.replace(0, np.nan)
     )
 
@@ -182,6 +197,29 @@ def calculate_indicators(df):
         .shift(1)
         .rolling(20)
         .min()
+    )
+
+    data["EMA20_SLOPE"] = (
+        data["EMA20"] - data["EMA20"].shift(5)
+    )
+
+    data["RSI_CHANGE_3"] = (
+        data["RSI"] - data["RSI"].shift(3)
+    )
+
+    data["MACD_HIST_CHANGE_3"] = (
+        data["MACD_HIST"]
+        - data["MACD_HIST"].shift(3)
+    )
+
+    data["DIST_EMA20_ATR"] = (
+        (data["Close"] - data["EMA20"])
+        / data["ATR"].replace(0, np.nan)
+    )
+
+    data["DIST_SUPPORT_ATR"] = (
+        (data["Close"] - data["SUP20"])
+        / data["ATR"].replace(0, np.nan)
     )
 
     return data
@@ -247,7 +285,10 @@ def score_setup(row):
             50 <= row["RSI"] <= 70,
             15,
             "RSI is in the constructive 50–70 zone",
-            f"RSI is {row['RSI']:.1f}, outside the preferred entry zone",
+            (
+                f"RSI is {row['RSI']:.1f}, "
+                "outside the preferred entry zone"
+            ),
         ),
         (
             row["MACD"] > row["MACD_SIGNAL"],
@@ -297,6 +338,264 @@ def score_setup(row):
     return score, reasons
 
 
+def calculate_reversal_score(df):
+    row = df.iloc[-1]
+    previous = df.iloc[-2]
+
+    reversal_score = 0
+    reversal_reasons = []
+
+    near_support = (
+        row["DIST_SUPPORT_ATR"] <= 1.5
+    )
+
+    if near_support:
+        reversal_score += 15
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 15,
+                "text": (
+                    "Price is trading near 20-day support"
+                ),
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 15,
+                "text": (
+                    "Price is not close to 20-day support"
+                ),
+            }
+        )
+
+    ema20_rising = row["EMA20_SLOPE"] > 0
+
+    if ema20_rising:
+        reversal_score += 15
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 15,
+                "text": "EMA20 slope is turning upward",
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 15,
+                "text": "EMA20 slope is still declining",
+            }
+        )
+
+    rsi_improving = (
+        row["RSI_CHANGE_3"] > 0
+        and row["RSI"] >= 35
+    )
+
+    if rsi_improving:
+        reversal_score += 20
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 20,
+                "text": (
+                    f"RSI is recovering to "
+                    f"{row['RSI']:.1f}"
+                ),
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 20,
+                "text": (
+                    "RSI recovery is not yet confirmed"
+                ),
+            }
+        )
+
+    macd_improving = (
+        row["MACD_HIST_CHANGE_3"] > 0
+    )
+
+    if macd_improving:
+        reversal_score += 20
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 20,
+                "text": (
+                    "MACD momentum is improving"
+                ),
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 20,
+                "text": (
+                    "MACD momentum is not improving"
+                ),
+            }
+        )
+
+    reclaimed_ema20 = (
+        row["Close"] > row["EMA20"]
+        and previous["Close"] <= previous["EMA20"]
+    )
+
+    if reclaimed_ema20:
+        reversal_score += 20
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 20,
+                "text": (
+                    "Price has freshly reclaimed EMA20"
+                ),
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 20,
+                "text": (
+                    "Fresh EMA20 reclaim not confirmed"
+                ),
+            }
+        )
+
+    volume_improving = (
+        row["Volume"] > row["VOL20"]
+    )
+
+    if volume_improving:
+        reversal_score += 10
+        reversal_reasons.append(
+            {
+                "passed": True,
+                "points": 10,
+                "text": (
+                    "Volume is above its 20-day average"
+                ),
+            }
+        )
+    else:
+        reversal_reasons.append(
+            {
+                "passed": False,
+                "points": 10,
+                "text": (
+                    "Volume confirmation is still weak"
+                ),
+            }
+        )
+
+    return reversal_score, reversal_reasons
+
+
+def detect_stage(df, setup_score):
+    row = df.iloc[-1]
+
+    reversal_score, reversal_reasons = (
+        calculate_reversal_score(df)
+    )
+
+    breakout = (
+        row["Close"] > row["RES20"]
+        and row["Volume"] > row["VOL20"] * 1.2
+    )
+
+    too_extended = (
+        row["DIST_EMA20_ATR"] > 2.0
+        or row["RSI"] > 75
+    )
+
+    if too_extended:
+        return {
+            "stage": "⚠️ EXTENDED / DO NOT CHASE",
+            "stage_percent": 0,
+            "reversal_score": reversal_score,
+            "reversal_reasons": reversal_reasons,
+            "next_action": (
+                "Do not open or add a fresh position. "
+                "Wait for price to cool down toward EMA20 "
+                "or form a new base."
+            ),
+        }
+
+    if breakout and setup_score >= 70:
+        return {
+            "stage": "🚀 BREAKOUT",
+            "stage_percent": 25,
+            "reversal_score": reversal_score,
+            "reversal_reasons": reversal_reasons,
+            "next_action": (
+                "Final 25% stage is eligible. "
+                "Do not exceed the risk-based maximum position."
+            ),
+        }
+
+    if setup_score >= 70:
+        return {
+            "stage": "🟢 BUY CONFIRMED",
+            "stage_percent": 50,
+            "reversal_score": reversal_score,
+            "reversal_reasons": reversal_reasons,
+            "next_action": (
+                "Trend setup is confirmed. "
+                "The next 50% stage is eligible."
+            ),
+        }
+
+    if (
+        reversal_score >= 55
+        and row["Close"] > row["EMA20"]
+        and row["RSI"] >= 40
+    ):
+        return {
+            "stage": "🟠 REVERSAL CONFIRMED",
+            "stage_percent": 25,
+            "reversal_score": reversal_score,
+            "reversal_reasons": reversal_reasons,
+            "next_action": (
+                "Initial 25% stage is eligible. "
+                "Wait for BUY confirmation before adding more."
+            ),
+        }
+
+    if reversal_score >= 35:
+        return {
+            "stage": "🟡 EARLY REVERSAL WATCH",
+            "stage_percent": 0,
+            "reversal_score": reversal_score,
+            "reversal_reasons": reversal_reasons,
+            "next_action": (
+                "A possible reversal is developing. "
+                "Wait for price to reclaim EMA20 and "
+                "for RSI/momentum confirmation."
+            ),
+        }
+
+    return {
+        "stage": "🔴 AVOID / NO ENTRY",
+        "stage_percent": 0,
+        "reversal_score": reversal_score,
+        "reversal_reasons": reversal_reasons,
+        "next_action": (
+            "No fresh entry. "
+            "Wait for reversal conditions to improve."
+        ),
+    }
+
+
 def classify_signal(score):
     if score >= 85:
         return "🟢 STRONG BUY"
@@ -337,7 +636,8 @@ def calculate_buy_requirements(row):
 
     if row["Close"] <= row["EMA20"]:
         requirements.append(
-            f"Price should close above EMA20 near ₹{row['EMA20']:.2f}"
+            f"Price should close above EMA20 "
+            f"near ₹{row['EMA20']:.2f}"
         )
 
     if row["EMA20"] <= row["EMA50"]:
@@ -362,7 +662,8 @@ def calculate_buy_requirements(row):
 
     if row["Close"] <= row["RES20"]:
         requirements.append(
-            f"Price should break 20-day resistance near ₹{row['RES20']:.2f}"
+            f"Price should break 20-day resistance "
+            f"near ₹{row['RES20']:.2f}"
         )
 
     return requirements
@@ -384,6 +685,11 @@ def analyze(symbol):
     stars, quality = opportunity_rating(score)
 
     requirements = calculate_buy_requirements(row)
+
+    stage_data = detect_stage(
+        df,
+        score,
+    )
 
     price = float(row["Close"])
     atr = float(row["ATR"])
@@ -416,4 +722,9 @@ def analyze(symbol):
         "stop": stop,
         "target_2r": target_2r,
         "target_3r": target_3r,
+        "stage": stage_data["stage"],
+        "stage_percent": stage_data["stage_percent"],
+        "reversal_score": stage_data["reversal_score"],
+        "reversal_reasons": stage_data["reversal_reasons"],
+        "next_action": stage_data["next_action"],
     }
