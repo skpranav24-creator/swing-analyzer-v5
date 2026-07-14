@@ -152,8 +152,18 @@ else:
 a1, a2, a3, a4 = st.columns(4)
 
 
+if action == "BUY":
+    confidence_label = "BUY Decision Confidence"
+
+elif action == "WAIT":
+    confidence_label = "WAIT Decision Confidence"
+
+else:
+    confidence_label = "AVOID Decision Confidence"
+
+
 a1.metric(
-    "Recommendation Confidence",
+    confidence_label,
     f"{ai_result['confidence']:.1f}%",
 )
 
@@ -190,35 +200,59 @@ for paragraph in ai_result["ai_view"]:
 
 
 # ==================================================
-# REWARD VS RISK
+# TRADE RISK / REWARD ASSESSMENT
 # ==================================================
 
-st.subheader("⚖️ Reward vs Risk")
+if action == "BUY":
 
+    st.subheader("⚖️ Reward vs Risk")
 
-rr = ai_result["reward_risk"]
+    rr = ai_result["reward_risk"]
 
+    r1, r2, r3 = st.columns(3)
 
-r1, r2, r3 = st.columns(3)
+    r1.metric(
+        "ATR Risk",
+        f"{rr['risk_percent']:.2f}%",
+    )
 
+    r2.metric(
+        "Planned 2R Target",
+        f"{rr['reward_2r_percent']:.2f}%",
+    )
 
-r1.metric(
-    "ATR Risk",
-    f"{rr['risk_percent']:.2f}%",
-)
+    r3.metric(
+        "Planned Reward / Risk",
+        f"{rr['rr_2r']:.2f} : 1",
+    )
 
+else:
 
-r2.metric(
-    "2R Reward",
-    f"{rr['reward_2r_percent']:.2f}%",
-)
+    st.subheader("⚖️ Trade Risk Assessment")
 
+    rr = ai_result["reward_risk"]
 
-r3.metric(
-    "Reward / Risk",
-    f"{rr['rr_2r']:.2f} : 1",
-)
+    r1, r2, r3 = st.columns(3)
 
+    r1.metric(
+        "ATR Distance",
+        f"{rr['risk_percent']:.2f}%",
+    )
+
+    r2.metric(
+        "Setup Probability",
+        f"{ai_result['probability']:.1f}%",
+    )
+
+    r3.metric(
+        "Entry Quality",
+        "POOR" if action == "AVOID" else "UNCONFIRMED",
+    )
+
+    st.warning(
+        "Reward targets are not evaluated as an active trade "
+        "because the model has not approved an entry."
+    )
 
 # ==================================================
 # FINAL ACTION
