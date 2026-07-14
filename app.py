@@ -3,22 +3,34 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from engine import analyze
+from ai_engine import ai_analyze
 
+
+# ==================================================
+# PAGE CONFIGURATION
+# ==================================================
 
 st.set_page_config(
-    page_title="Swing Analyzer V5.1",
+    page_title="Swing Analyzer V5.2",
     page_icon="🤖",
     layout="wide",
 )
 
 
-st.title("🤖 Swing Analyzer V5.1")
+# ==================================================
+# APP HEADER
+# ==================================================
+
+st.title("🤖 Swing Analyzer V5.2")
 
 st.caption(
-    "Technical decision engine with AI-style market interpretation "
-    "for NSE swing opportunities."
+    "Quantitative technical decision engine for NSE swing opportunities."
 )
 
+
+# ==================================================
+# SIDEBAR
+# ==================================================
 
 st.sidebar.header("🔍 Analyze")
 
@@ -44,21 +56,31 @@ risk_pct = st.sidebar.slider(
 )
 
 analyze_button = st.sidebar.button(
-    "🤖 AI Analyze",
+    "🤖 Smart Analyze",
     use_container_width=True,
 )
 
 
+# ==================================================
+# WAIT FOR ANALYZE BUTTON
+# ==================================================
+
 if not analyze_button:
     st.info(
-        "Enter an NSE symbol and click 🤖 AI Analyze."
+        "Enter an NSE symbol and click 🤖 Smart Analyze."
     )
 
     st.stop()
 
 
+# ==================================================
+# RUN TECHNICAL ENGINE
+# ==================================================
+
 try:
     result = analyze(symbol)
+
+    ai_result = ai_analyze(result)
 
 except Exception as error:
     st.error(
@@ -68,160 +90,197 @@ except Exception as error:
     st.stop()
 
 
+# ==================================================
+# EXTRACT DATA
+# ==================================================
+
 row = result["row"]
 
 price = result["price"]
 
 score = result["score"]
 
-reversal_score = result["reversal_score"]
+stage_allocation = result.get(
+    "stage_allocation",
+    0,
+)
 
-stage_allocation = result["stage_allocation"]
 
-ai = result["ai_decision"]
-
+# ==================================================
+# STOCK HEADER
+# ==================================================
 
 st.subheader(
     f"{result['ticker']} — {result['signal']}"
 )
 
 
-# --------------------------------------------------
-# AI DECISION
-# --------------------------------------------------
+# ==================================================
+# QUANTITATIVE DECISION
+# ==================================================
 
-st.header("🤖 AI DECISION")
+st.header("🤖 Quantitative Decision")
 
 
-if (
-    "DO NOT BUY" in ai["verdict"]
-    or "🛑" in ai["verdict"]
-):
-    st.error(ai["verdict"])
+recommendation = ai_result["recommendation"]
 
-elif "SMALL BUY" in ai["verdict"]:
-    st.warning(ai["verdict"])
+decision = recommendation["decision"]
+
+action = recommendation["action"]
+
+
+if action == "BUY":
+    st.success(
+        f"### {decision}"
+    )
+
+elif action == "WAIT":
+    st.warning(
+        f"### {decision}"
+    )
 
 else:
-    st.success(ai["verdict"])
+    st.error(
+        f"### {decision} — DO NOT BUY NOW"
+    )
 
+
+# ==================================================
+# DECISION METRICS
+# ==================================================
 
 a1, a2, a3, a4 = st.columns(4)
 
+
 a1.metric(
-    "AI Confidence",
-    ai["confidence"],
+    "Recommendation Confidence",
+    f"{ai_result['confidence']:.1f}%",
 )
+
 
 a2.metric(
-    "Setup Score",
-    f"{score}/100",
+    "Favourable Setup Probability",
+    f"{ai_result['probability']:.1f}%",
 )
+
 
 a3.metric(
-    "Reversal Score",
-    f"{reversal_score}/100",
+    "Risk Level",
+    ai_result["risk_level"],
 )
+
 
 a4.metric(
-    "Trend",
-    result["trend"],
+    "Trade Quality",
+    ai_result["stars"],
 )
 
 
-st.markdown("### AI View")
+# ==================================================
+# MODEL INTERPRETATION
+# ==================================================
 
-st.write(ai["summary"])
+st.subheader("🧠 Model Interpretation")
 
 
-for observation in ai["observations"]:
+for paragraph in ai_result["ai_view"]:
     st.write(
-        f"• {observation}"
+        paragraph
     )
 
 
-st.markdown("### 🎯 AI Next Step")
+# ==================================================
+# REWARD VS RISK
+# ==================================================
 
-st.info(
-    ai["next_step"]
+st.subheader("⚖️ Reward vs Risk")
+
+
+rr = ai_result["reward_risk"]
+
+
+r1, r2, r3 = st.columns(3)
+
+
+r1.metric(
+    "ATR Risk",
+    f"{rr['risk_percent']:.2f}%",
 )
 
 
-st.divider()
-
-
-# --------------------------------------------------
-# ENTRY STAGE
-# --------------------------------------------------
-
-st.header("🚦 Entry Stage")
-
-s1, s2, s3 = st.columns(3)
-
-s1.metric(
-    "Current Stage",
-    result["stage"],
-)
-
-s2.metric(
-    "Recommended Action",
-    result["stage_action"],
-)
-
-s3.metric(
-    "Planned Allocation",
-    f"{stage_allocation}%",
+r2.metric(
+    "2R Reward",
+    f"{rr['reward_2r_percent']:.2f}%",
 )
 
 
-if stage_allocation == 0:
-    st.warning(
-        "The engine does not currently approve a new position."
-    )
+r3.metric(
+    "Reward / Risk",
+    f"{rr['rr_2r']:.2f} : 1",
+)
 
-elif stage_allocation == 25:
-    st.warning(
-        "Only a first-stage 25% entry is approved. "
-        "Do not deploy full capital."
-    )
 
-elif stage_allocation == 75:
+# ==================================================
+# FINAL ACTION
+# ==================================================
+
+st.subheader("🎯 Final Action")
+
+
+if action == "BUY":
+
     st.success(
-        "The bullish setup is confirmed. "
-        "Up to 75% staged allocation is approved by the rules."
+        f"BUY APPROVED — Planned allocation: "
+        f"{recommendation['allocation']}%"
     )
+
+
+elif action == "WAIT":
+
+    st.warning(
+        "WAIT — The model does not approve "
+        "a new position yet."
+    )
+
 
 else:
-    st.success(
-        "Breakout stage confirmed by the technical rules."
+
+    st.error(
+        "DO NOT BUY — Current conditions "
+        "fail the entry model."
     )
 
 
 st.divider()
 
 
-# --------------------------------------------------
+# ==================================================
 # MARKET SNAPSHOT
-# --------------------------------------------------
+# ==================================================
 
 st.header("📊 Market Snapshot")
 
+
 m1, m2, m3, m4 = st.columns(4)
+
 
 m1.metric(
     "Current Price",
     f"₹{price:.2f}",
 )
 
+
 m2.metric(
     "EMA20",
     f"₹{row['EMA20']:.2f}",
 )
 
+
 m3.metric(
     "EMA50",
     f"₹{row['EMA50']:.2f}",
 )
+
 
 m4.metric(
     "RSI",
@@ -231,20 +290,24 @@ m4.metric(
 
 m5, m6, m7, m8 = st.columns(4)
 
+
 m5.metric(
     "ADX",
     f"{row['ADX']:.1f}",
 )
+
 
 m6.metric(
     "EMA200",
     f"₹{row['EMA200']:.2f}",
 )
 
+
 m7.metric(
     "20-Day Resistance",
     f"₹{row['RES20']:.2f}",
 )
+
 
 m8.metric(
     "20-Day Support",
@@ -255,9 +318,9 @@ m8.metric(
 st.divider()
 
 
-# --------------------------------------------------
+# ==================================================
 # POSITION SIZING
-# --------------------------------------------------
+# ==================================================
 
 risk_budget = (
     capital
@@ -265,20 +328,24 @@ risk_budget = (
     / 100
 )
 
+
 risk_per_share = max(
     price - result["stop"],
     0.01,
 )
+
 
 max_qty_by_risk = int(
     risk_budget
     // risk_per_share
 )
 
+
 max_qty_by_capital = int(
     capital
     // price
 )
+
 
 max_quantity = min(
     max_qty_by_risk,
@@ -290,9 +357,11 @@ stage_1_qty = int(
     max_quantity * 0.25
 )
 
+
 stage_2_qty = int(
     max_quantity * 0.50
 )
+
 
 stage_3_qty = (
     max_quantity
@@ -301,24 +370,39 @@ stage_3_qty = (
 )
 
 
+# ==================================================
+# POSITION PLAN
+# ==================================================
+
 st.header("💰 Position Plan")
 
+
 p1, p2, p3 = st.columns(3)
+
 
 p1.metric(
     "Maximum Risk Budget",
     f"₹{risk_budget:.2f}",
 )
 
+
 p2.metric(
     "Maximum Quantity",
     max_quantity,
 )
 
+
 p3.metric(
     "Full Position Value",
     f"₹{max_quantity * price:.2f}",
 )
+
+
+# ==================================================
+# POSITION STATUS
+# ==================================================
+
+approved_allocation = recommendation["allocation"]
 
 
 position_table = pd.DataFrame(
@@ -328,30 +412,35 @@ position_table = pd.DataFrame(
             "Stage 2 — Buy Confirmed",
             "Stage 3 — Breakout",
         ],
+
         "Allocation": [
             "25%",
             "50%",
             "25%",
         ],
+
         "Quantity": [
             stage_1_qty,
             stage_2_qty,
             stage_3_qty,
         ],
+
         "Status": [
             (
                 "✅ Approved"
-                if stage_allocation >= 25
+                if approved_allocation >= 25
                 else "⏳ Wait"
             ),
+
             (
                 "✅ Approved"
-                if stage_allocation >= 75
+                if approved_allocation >= 75
                 else "⏳ Wait"
             ),
+
             (
                 "✅ Approved"
-                if stage_allocation >= 100
+                if approved_allocation >= 100
                 else "⏳ Wait"
             ),
         ],
@@ -366,31 +455,67 @@ st.dataframe(
 )
 
 
+if approved_allocation == 0:
+
+    st.warning(
+        "No new position is currently approved."
+    )
+
+
+elif approved_allocation == 25:
+
+    st.warning(
+        "Only a first-stage 25% position is approved. "
+        "Do not deploy the full planned position."
+    )
+
+
+elif approved_allocation == 75:
+
+    st.success(
+        "The setup has sufficient confirmation "
+        "for up to 75% staged allocation."
+    )
+
+
+elif approved_allocation >= 100:
+
+    st.success(
+        "The full technical setup is confirmed "
+        "under the current model."
+    )
+
+
 st.divider()
 
 
-# --------------------------------------------------
-# ACTION PLAN
-# --------------------------------------------------
+# ==================================================
+# TRADE REFERENCE
+# ==================================================
 
 st.header("🧭 Trade Reference")
 
+
 t1, t2, t3, t4 = st.columns(4)
+
 
 t1.metric(
     "Current Reference",
     f"₹{price:.2f}",
 )
 
+
 t2.metric(
     "ATR Stop",
     f"₹{result['stop']:.2f}",
 )
 
+
 t3.metric(
     "2R Target",
     f"₹{result['target_2r']:.2f}",
 )
+
 
 t4.metric(
     "3R Target",
@@ -398,7 +523,8 @@ t4.metric(
 )
 
 
-if stage_allocation == 0:
+if action != "BUY":
+
     st.warning(
         "These levels are research references only. "
         "There is currently NO approved entry."
@@ -408,14 +534,17 @@ if stage_allocation == 0:
 st.divider()
 
 
-# --------------------------------------------------
-# WHY
-# --------------------------------------------------
+# ==================================================
+# ENGINE REASONS
+# ==================================================
 
-st.header("🧠 Why the Engine Gave This Decision")
+st.header(
+    "🧠 Why the Engine Gave This Decision"
+)
 
 
 for reason in result["reasons"]:
+
     icon = (
         "✅"
         if reason["passed"]
@@ -432,20 +561,26 @@ for reason in result["reasons"]:
 st.divider()
 
 
-# --------------------------------------------------
+# ==================================================
 # BUY REQUIREMENTS
-# --------------------------------------------------
+# ==================================================
 
-st.header("🚦 What Must Happen Before BUY?")
+st.header(
+    "🚦 What Must Happen Before BUY?"
+)
 
 
 if result["requirements"]:
+
     for requirement in result["requirements"]:
+
         st.write(
             f"• {requirement}"
         )
 
+
 else:
+
     st.success(
         "The main technical BUY requirements "
         "are currently satisfied."
@@ -455,11 +590,13 @@ else:
 st.divider()
 
 
-# --------------------------------------------------
-# CHART
-# --------------------------------------------------
+# ==================================================
+# INTERACTIVE PRICE CHART
+# ==================================================
 
-st.header("📊 Interactive Price Trend")
+st.header(
+    "📊 Interactive Price Trend"
+)
 
 
 df = result["data"].tail(300)
@@ -519,10 +656,14 @@ st.plotly_chart(
 )
 
 
+# ==================================================
+# DISCLAIMER
+# ==================================================
+
 st.warning(
-    "V5.1 is a rule-based technical research tool. "
-    "The AI decision shown here is an automated interpretation "
-    "of technical indicators, not a guarantee of profit or "
-    "personalized investment advice. Verify live prices with "
-    "your broker."
+    "V5.2 is a quantitative rule-based technical research tool. "
+    "The recommendation is generated from historical market data "
+    "and technical indicators. A BUY signal does not guarantee "
+    "profit. Verify live market prices with your broker and follow "
+    "your defined risk limit."
 )
